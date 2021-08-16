@@ -119,6 +119,21 @@ badtimewindows = [
     (1638.99562, 1640.03312), # sector 12 downlink, btwn orbits 31->32
     (1667.69004, 1668.61921), # sector 13 downlink, btwn orbits 33->34
     (1696.38865, 1697.33865), # sector 14 downlink, btwn orbits 35->36
+    (1723.8584, 1724.9348), # sector 15 downlink, btwn orbits 37->38
+    (1750.3584, 1751.6501), # sector 16 downlink, btwn orbits 39->40
+    (1776.2959, 1777.7230), # sector 17 downlink, btwn orbits 41->42
+    (1802.4418, 1803.4418), # sector 18 downlink, btwn orbits 43->44
+    (1827.9939, 1828.9591), # sector 19 downlink, btwn orbits 45->46
+    (1854.8584, 1856.3897), # sector 20 downlink, btwn orbits 47->48
+    (1883.9939, 1884.9175), # sector 21 downlink, btwn orbits 49->50
+    (1912.5043, 1913.5668), # sector 22 downlink, btwn orbits 51->52
+    (1940.8723, 1941.8307), # sector 23 downlink, btwn orbits 53->54
+    (1968.3480, 1969.2647), # sector 24 downlink, btwn orbits 55->56
+    (1995.6362, 1996.9105), # sector 25 downlink, btwn orbits 57->58
+    (2022.1918, 2023.1084), # sector 26 downlink, btwn orbits 59->60
+    (2048.1293, 2049.1466), # sector 27 downlink, btwn orbits 61->62
+    (2073.9626, 2075.1675), # sector 28 downlink, btwn orbits 63->64
+    (2101.3723, 2114.4348), # sector 29 downlink, btwn orbits 65->66
 ]
 
 
@@ -329,8 +344,8 @@ def verify_badframe_move(fitslist, flagvalues, max_frac_badframes=0.25):
         # sector 3 has reaction wheel testing.
         # sector 8 has an instrument failure.
         # sector 12, camera 1 has extended scattered light (see Kruse's videos)
-        # sector 14, camera 1 also has extended scattered light
-        badsectors = ['s0003', 's0008', 's0012', 's0014']
+        # sector 14 and sector 15, camera 1 also has extended scattered light
+        badsectors = ['s0003', 's0008', 's0012', 's0014', 's0015']
 
         raise_error = True
         for badsector in badsectors:
@@ -610,7 +625,7 @@ def from_ete6_to_fitsh_compatible(fitslist, outdir, projid=42):
 
 
 def are_known_planets_in_field(ra_center, dec_center, outname, use_NEA=False,
-                               use_alerts=False, use_tev=True):
+                               use_alerts=False, use_tev=False, use_exofop=True):
     """
     Given a field center, find which known planets are on chip.
     Dependencies: tessmaps, astroquery
@@ -636,7 +651,7 @@ def are_known_planets_in_field(ra_center, dec_center, outname, use_NEA=False,
     """
 
     # at most one data getting location should be used
-    assert np.sum([use_NEA, use_alerts, use_tev]) == 1
+    assert np.sum([use_NEA, use_alerts, use_tev, use_exofop]) == 1
 
     from tessmaps import get_time_on_silicon as gts
 
@@ -681,6 +696,18 @@ def are_known_planets_in_field(ra_center, dec_center, outname, use_NEA=False,
         pl_onchip = gts.given_one_camera_get_stars_on_silicon(
             kp_coords, cam_tuple, withgaps=False)
 
+    elif use_exofop:
+        # download latest TOI list to local memory; use that instead.
+        df = pd.read_csv(
+            'https://exofop.ipac.caltech.edu/tess/download_toi.php?sort=toi&output=csv',
+            sep=',', comment='#'
+        )
+        kp_coords = SkyCoord(nparr(df['RA']),
+                             nparr(df['Dec']),
+                             frame='icrs', unit=(u.hourangle, u.deg))
+        pl_onchip = gts.given_one_camera_get_stars_on_silicon(
+            kp_coords, cam_tuple, withgaps=False)
+
     else:
         raise NotImplementedError('use_alerts or use_NEA must be true.')
 
@@ -698,7 +725,7 @@ def are_known_planets_in_field(ra_center, dec_center, outname, use_NEA=False,
 
         return True
 
-    elif np.any(pl_onchip) and (use_alerts or use_tev):
+    elif np.any(pl_onchip) and (use_alerts or use_tev or use_exofop):
 
         outdf = df[pl_onchip.astype(bool)]
         outdf.to_csv(outname, index=False)
@@ -1001,8 +1028,8 @@ def make_cluster_cutout_jpgs(sectornum, fitsdir, racenter, deccenter, field,
 
 def measure_known_planet_SNR(kponchippath, projcatalogpath, lcdirectory,
                              statsdir, sectornum, minxmatchsep=3, nworkers=20,
-                             use_NEA=False, use_alerts=False, use_tev=True,
-                             skipepd=False):
+                             use_NEA=False, use_alerts=False, use_tev=False,
+                             use_exofop=True, skipepd=False):
     """
     Args:
 
@@ -1021,7 +1048,7 @@ def measure_known_planet_SNR(kponchippath, projcatalogpath, lcdirectory,
     """
 
     # at most one data getting location should be used
-    assert np.sum([use_NEA, use_alerts, use_tev]) == 1
+    assert np.sum([use_NEA, use_alerts, use_tev, use_exofop]) == 1
 
     minxmatchsep = minxmatchsep*u.arcsec
 
@@ -1049,6 +1076,10 @@ def measure_known_planet_SNR(kponchippath, projcatalogpath, lcdirectory,
         tab = pd.read_csv(kponchippath)
         tab['pl_name'] = tab['Full TOI ID']
         tab['pl_hostname'] = tab['TIC']
+    elif use_exofop:
+        tab = pd.read_csv(kponchippath)
+        tab['pl_name'] = tab['TOI']
+        tab['pl_hostname'] = tab['TIC ID']
     else:
         raise NotImplementedError
 
@@ -1065,6 +1096,10 @@ def measure_known_planet_SNR(kponchippath, projcatalogpath, lcdirectory,
         kp_coords = SkyCoord(nparr(tab['TIC Right Ascension'])*u.deg,
                              nparr(tab['TIC Declination'])*u.deg,
                              frame='icrs')
+    elif use_exofop:
+        kp_coords = SkyCoord(nparr(tab['RA']),
+                             nparr(tab['Dec']),
+                             frame='icrs', unit=(u.hourangle, u.deg))
 
     for colname in [
         'match_proj_ra','match_proj_dec','match_sep_arcsec'
@@ -1977,17 +2012,17 @@ def parallel_bkgd_subtract(fitslist, method='boxblurmedian', isfull=True, k=32,
     from parse import parse
     res = parse('{}/sector-{}/{}',fitslist[0])
     sectornum = int(res[1])
-    if sectornum in [1,2,4,5,6,7,8,9,10,11,14,17]:
+    if sectornum in [1,2,4,5,6,7,8,9,10,11,17]:
         orbitgap = 1. # days
     elif sectornum in [3]:
         orbitgap = 0.15 # days
-    elif sectornum in [12,13]:
+    elif sectornum in [12,13,14,15]:
         orbitgap = 0.5 # days
     else:
         errmsg = 'need manual orbitgap to be implemented in bkgdsub'
         raise NotImplementedError(errmsg)
 
-    if isfull and sectornum in [1,2,5,6,7,9,10,11,12,13,14,17]:
+    if isfull and sectornum in [1,2,5,6,7,9,10,11,12,13,14,15,17]:
         expected_norbits = 2
     elif not isfull:
         expected_norbits = 1
