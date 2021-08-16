@@ -96,6 +96,7 @@ DQUALITYMASKCMD = ('fiign {fitsfile} -o {outfitsfile} '
 
 # bad times quoted in data release notes are all in TJD (no barycentric
 # correction applied). this is b/c they're from POC, not SPOC.
+# the following were manually copied in, and are saved for posterity:
 badtimewindows = [
     (1347, 1349.5), # sector 1, coarse pointing
     (1338.52153, 1339.65310), # sector 1 downlink, btwn orbits 9->10
@@ -135,6 +136,25 @@ badtimewindows = [
     (2073.9626, 2075.1675), # sector 28 downlink, btwn orbits 63->64
     (2101.3723, 2114.4348), # sector 29 downlink, btwn orbits 65->66
 ]
+# and we can append to this automatically using the orbit times from:
+# https://archive.stsci.edu/missions/tess/doc/tess_drn/
+# (downloaded on the date noted below... I'll reach out to Scott Fleming to
+# see whether it'll be updated past S29)
+from paths import DATADIR
+badtime_df = pd.read_csv(
+    os.path.join(DATADIR, '20210712_tess_orbit_times_by_sector.csv'),
+    comment='#'
+)
+for ix in range(37, 65, 2):
+    thistuple = (
+        float(badtime_df[badtime_df.Orbit == ix]['End TJD']),
+        float(badtime_df[badtime_df.Orbit == ix+1]['Start TJD'])
+    )
+    badtimewindows.append(thistuple)
+# append the mid-sector downlink gaps between orbits 37->38, 39->40, 41->42,
+# etc. NOTE that if the downlink schedule ever changes, and the parity changes,
+# the opposite gap will need to be done.  this continues through orbit 65->66,
+# which finished 2020-09-21 (sector 29).
 
 
 def mask_dquality_flag_frame(task):
