@@ -94,6 +94,11 @@ SATURATIONMASKCMD = ('fiign {fitsfile} -o {outfitsfile} '
 DQUALITYMASKCMD = ('fiign {fitsfile} -o {outfitsfile} '
                    '-s {minimumreadout:.10f} --ignore-nonpositive')
 
+# lists of bad times to remove for specific camera/ccd combinations
+# key is camera*10 + ccd
+cameraccdbadtimes = {13: [(1765.40, 1766.09), (1767.71, 1772.96), #sector 17
+                          (1777.92,1780.63), (1789.59, 1789.67)   # sector 17
+]}
 # bad times quoted in data release notes are all in TJD (no barycentric
 # correction applied). this is b/c they're from POC, not SPOC.
 # the following were manually copied in, and are saved for posterity:
@@ -123,6 +128,7 @@ badtimewindows = [
     (1723.8584, 1724.9348), # sector 15 downlink, btwn orbits 37->38
     (1750.3584, 1751.6501), # sector 16 downlink, btwn orbits 39->40
     (1776.2959, 1777.7230), # sector 17 downlink, btwn orbits 41->42
+    (1791.1115, 1791.36989), # sector 18 instrument shutdown for eclipse
     (1802.4418, 1803.4418), # sector 18 downlink, btwn orbits 43->44
     (1827.9939, 1828.9591), # sector 19 downlink, btwn orbits 45->46
     (1854.8584, 1856.3897), # sector 20 downlink, btwn orbits 47->48
@@ -177,11 +183,19 @@ def mask_dquality_flag_frame(task):
 
         # get frametime in TJD = BTJD - LTT_corr
         tjd = hdr['TSTART'] - hdr['BARYCORR']
-
+        camera = hdr['CAMERA']
+        ccd = hdr['CCD']
+                          
         for window in badtimewindows:
             if tjd > min(window) and tjd < max(window):
                 isbadtime = True
 
+        cameraccdbadtimeskey = camera*10 + ccd
+        if cameraccdbadtimeskey in cameraccdbadtimes:
+            for window in cameraccdbadtimes[cameraccdbadtimeskey]:
+                if tjd > min(window) and tjd < max(window):
+                    isbadtime = True
+                
     # if it matches, mask out everything. otherwise, do nothing.
     if hdr['DQUALITY'] in flagvalues or isbadtime:
 
@@ -523,7 +537,7 @@ def parallel_mask_saturated_stars(fitslist, saturationlevel=65535, nworkers=16,
 
 
 def parallel_trim_get_single_extension(fitslist, outdir, projid, nworkers=16,
-                                       maxworkertasks=1000):
+                                       maxworkertasks=1000, isforce=False):
     '''
     see docstring for from_CAL_to_fitsh_compatible
     '''
@@ -536,38 +550,38 @@ def parallel_trim_get_single_extension(fitslist, outdir, projid, nworkers=16,
 
     pool = mp.Pool(nworkers,maxtasksperchild=maxworkertasks)
 
-    path_exists = []
-    for ix, fitsname in enumerate(fitslist):
-        outname = (
-            os.path.join(outdir, os.path.basename(
-                fitsname.replace('-s_ffic.fits', '_cal_img.fits'))
+    if not isforce:
+        path_exists = []
+        for ix, fitsname in enumerate(fitslist):
+            outname = (
+                os.path.join(outdir, os.path.basename(
+                    fitsname.replace('-s_ffic.fits', '_cal_img.fits'))
+                )
             )
-        )
-        if os.path.exists(outname):
-            path_exists.append(1)
-        else:
-            path_exists.append(0)
+            if os.path.exists(outname):
+                path_exists.append(1)
+            else:
+                path_exists.append(0)
 
-    path_exists = nparr(path_exists)
+        path_exists = nparr(path_exists)
 
-    if npall(path_exists):
-        print(
-            'found all {:d} fitsh-compatible files, continuing'.
-            format(len(path_exists))
-        )
-        return 0
+        if npall(path_exists):
+            print(
+                'found all {:d} fitsh-compatible files, continuing'.
+                format(len(path_exists))
+            )
+            return 0
 
-    else:
-        tasks = [(x, outdir, projid) for x in fitslist]
+    tasks = [(x, outdir, projid, isforce) for x in fitslist]
 
-        # fire up the pool of workers
-        results = pool.map(from_CAL_to_fitsh_compatible, tasks)
+    # fire up the pool of workers
+    results = pool.map(from_CAL_to_fitsh_compatible, tasks)
 
-        # wait for the processes to complete work
-        pool.close()
-        pool.join()
+    # wait for the processes to complete work
+    pool.close()
+    pool.join()
 
-        return 1
+    return 1
 
 
 def from_CAL_to_fitsh_compatible(task):
@@ -590,7 +604,7 @@ def from_CAL_to_fitsh_compatible(task):
     Returns:
         nothing.
     '''
-    fitsname, outdir, projid = task
+    fitsname, outdir, projid, isforce = task
 
     if fitsname.split('-')[-1] != 's_ffic.fits':
         raise AssertionError('expected calibrated FFI from MAST.')
@@ -621,8 +635,8 @@ def from_CAL_to_fitsh_compatible(task):
 
     assert trim.shape == (2048, 2048)
 
-    if not os.path.exists(outname):
-        fits.writeto(outname, trim, header=hdr)
+    if not os.path.exists(outname) or isforce:
+        fits.writeto(outname, trim, header=hdr, overwrite=isforce)
         print('{:s} Wrote {:s} to {:s}'.format(
             datetime.utcnow().isoformat(), fitsname, outname)
         )
@@ -641,7 +655,7 @@ def from_ete6_to_fitsh_compatible(fitslist, outdir, projid=42):
     '''
 
     for fitsname in fitslist:
-        from_CAL_to_fitsh_compatible((fitsname, outdir, projid))
+        from_CAL_to_fitsh_compatible((fitsname, outdir, projid, False))
 
 
 def are_known_planets_in_field(ra_center, dec_center, outname, use_NEA=False,
@@ -1851,9 +1865,9 @@ def read_object_reformed_catalog(reformedcatalogfile, isgaiaid=False,
 
 def median_filter_frame(task):
 
-    imgfile, outbkgdpath, outbkgdsubpath, n_sigma, k, k_sigma = task
+    imgfile, outbkgdpath, outbkgdsubpath, n_sigma, k, k_sigma, isforce = task
 
-    if os.path.exists(outbkgdpath) and os.path.exists(outbkgdsubpath):
+    if not isforce and os.path.exists(outbkgdpath) and os.path.exists(outbkgdsubpath):
         print('{} found and skipped {}'.format(
             datetime.utcnow().isoformat(), outbkgdpath))
         return 1
@@ -1890,8 +1904,8 @@ def median_filter_frame(task):
         [hdu_bkgd, hdu_sub],
         [outbkgdpath, outbkgdsubpath]
     ):
-        if not os.path.exists(outfile):
-            outhdu.writeto(outfile)
+        if isforce or not os.path.exists(outfile):
+            outhdu.writeto(outfile, overwrite=isforce)
             print('{}: made {}'.
                   format(datetime.utcnow().isoformat(), outfile))
         else:
@@ -1903,9 +1917,9 @@ def median_filter_frame(task):
 
 def none_filter_frame(task):
 
-    imgfile, outbkgdpath, outbkgdsubpath, n_sigma, k, k_sigma = task
+    imgfile, outbkgdpath, outbkgdsubpath, n_sigma, k, k_sigma, isforce = task
 
-    if os.path.exists(outbkgdpath) and os.path.exists(outbkgdsubpath):
+    if not isforce and os.path.exists(outbkgdpath) and os.path.exists(outbkgdsubpath):
         print('{} found and skipped {}'.format(
             datetime.utcnow().isoformat(), outbkgdpath))
         return 1
@@ -1931,7 +1945,7 @@ def none_filter_frame(task):
         [hdu_bkgd, hdu_sub],
         [outbkgdpath, outbkgdsubpath]
     ):
-        if not os.path.exists(outfile):
+        if isforce or not os.path.exists(outfile):
             outhdu.writeto(outfile)
             print('{}: made {}'.
                   format(datetime.utcnow().isoformat(), outfile))
@@ -1944,7 +1958,7 @@ def none_filter_frame(task):
 
 def parallel_bkgd_subtract(fitslist, method='boxblurmedian', isfull=True, k=32,
                            k_sigma=32, outdir=None, nworkers=32,
-                           maxworkertasks=1000, n_sigma=2):
+                           maxworkertasks=1000, n_sigma=2, isforce=False):
     """
     Given list of FITS files, estimate the bulk sky background. Two additional
     files are made for each FITS image passed:
@@ -2032,12 +2046,14 @@ def parallel_bkgd_subtract(fitslist, method='boxblurmedian', isfull=True, k=32,
     from parse import parse
     res = parse('{}/sector-{}/{}',fitslist[0])
     sectornum = int(res[1])
-    if sectornum in [1,2,4,5,6,7,8,9,10,11,17]:
+    if sectornum in [1,2,4,5,6,7,8,9,10,11]:
         orbitgap = 1. # days
     elif sectornum in [3]:
         orbitgap = 0.15 # days
-    elif sectornum in [12,13,14,15]:
+    elif sectornum in [12,13,14,15,16,17]:
         orbitgap = 0.5 # days
+    elif sectornum in [18]:
+        orbitgap = 0.25 # days
     else:
         errmsg = 'need manual orbitgap to be implemented in bkgdsub'
         raise NotImplementedError(errmsg)
@@ -2046,7 +2062,7 @@ def parallel_bkgd_subtract(fitslist, method='boxblurmedian', isfull=True, k=32,
         expected_norbits = 2
     elif not isfull:
         expected_norbits = 1
-    elif sectornum in [4,8]:
+    elif sectornum in [4,8,18]:
         expected_norbits = 3 # (quality cuts down to 2 afterwards)
     else:
         expected_norbits = 2
@@ -2080,7 +2096,7 @@ def parallel_bkgd_subtract(fitslist, method='boxblurmedian', isfull=True, k=32,
 
         pool = mp.Pool(nworkers,maxtasksperchild=maxworkertasks)
 
-        tasks = [(x, y, z, n_sigma, k, k_sigma) for x, y, z in
+        tasks = [(x, y, z, n_sigma, k, k_sigma, isforce) for x, y, z in
                  zip(tg_fitsimgs, tg_outbkgdnames, tg_outbkgdsubnames) ]
 
         if method == 'boxblurmedian':
@@ -2159,7 +2175,7 @@ def plot_apertures_on_frame(fitsframe, photrefprojcat, xlim=None, ylim=None):
 
 def plot_median_filter_quad(task):
 
-    bkgdfile, calfile, outdir = task
+    bkgdfile, calfile, outdir, isforce = task
 
     vmin, vmax = 10, int(1e3)
 
@@ -2168,7 +2184,7 @@ def plot_median_filter_quad(task):
                      os.path.basename(bkgdfile).replace('.fits','.png'))
     )
 
-    if os.path.exists(outpath):
+    if not isforce and os.path.exists(outpath):
         print('found {}. continue'.format(outpath))
         return 0
 
@@ -2220,7 +2236,7 @@ def plot_median_filter_quad(task):
     print('{}: made {}'.format(datetime.utcnow().isoformat(), outpath))
 
 
-def parallel_plot_median_filter_quad(fitsdir, nworkers=16, maxworkertasks=1000):
+def parallel_plot_median_filter_quad(fitsdir, nworkers=16, maxworkertasks=1000, isforce=False):
     """
     make 2x2 plots of:
         calibrated image          |     bkgd estimate
@@ -2236,7 +2252,7 @@ def parallel_plot_median_filter_quad(fitsdir, nworkers=16, maxworkertasks=1000):
 
     pool = mp.Pool(nworkers,maxtasksperchild=maxworkertasks)
 
-    tasks = [(x,y,outdir) for x,y in zip(bkgdfits, _fitslist)]
+    tasks = [(x,y,outdir, isforce) for x,y in zip(bkgdfits, _fitslist)]
 
     results = pool.map(plot_median_filter_quad, tasks)
 

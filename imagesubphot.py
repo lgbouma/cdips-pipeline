@@ -799,7 +799,8 @@ def xysdk_coeffs_worker(task):
 def get_smoothed_xysdk_coeffs(fistardir,
                               fistarglob='*.fistar',
                               nworkers=16,
-                              maxworkertasks=1000):
+                              maxworkertasks=1000,
+                              overwrite=False):
     """
     This generates smoothed xy and sdk coefficents for use with iphot later
     (these go into the output photometry file or something).
@@ -812,14 +813,15 @@ def get_smoothed_xysdk_coeffs(fistardir,
 
     fistarlist = glob.glob(os.path.join(os.path.abspath(fistardir), fistarglob))
 
-    # if all the files exist, don't bother replicating them.
-    xysdk_exists = np.array(
-        [os.path.exists(f.replace('.fistar','.xysdk')) for f in fistarlist]
-    )
-    if np.all(xysdk_exists):
-        print('%sZ: found all xysdk files already existed. continue.' %
-              (datetime.utcnow().isoformat()))
-        return None
+    if not overwrite:
+        # if all the files exist, don't bother replicating them.
+        xysdk_exists = np.array(
+            [os.path.exists(f.replace('.fistar','.xysdk')) for f in fistarlist]
+        )
+        if np.all(xysdk_exists):
+            print('%sZ: found all xysdk files already existed. continue.' %
+                  (datetime.utcnow().isoformat()))
+            return None
 
     print('%sZ: %s files to process in %s' %
           (datetime.utcnow().isoformat(), len(fistarlist), fistardir))

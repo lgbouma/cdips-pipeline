@@ -1122,7 +1122,7 @@ def parallel_frames_to_database(fitsbasedir,
     This runs a DB ingest on all FITS located in fitsbasedir and subdirs.  Runs
     a 'find' subprocess to find all the FITS to process.  If the frames have
     already been injested, based on their fits file paths they will not be
-    changed.
+    changed, unless overwrite=True.
 
     Args:
         fitsbasedir: base directory with fits files. For example,

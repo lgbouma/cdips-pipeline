@@ -402,7 +402,8 @@ def parallel_convert_grcollect_to_fits_lc(lcdirectory,
                                           nworkers=16,
                                           maxworkertasks=1000,
                                           observatory='tess',
-                                          temperaturedfpath=None):
+                                          temperaturedfpath=None,
+                                          overwrite=False):
     """
     Parallelizes convert_grcollect_to_fits_lc_worker.
 
@@ -440,43 +441,42 @@ def parallel_convert_grcollect_to_fits_lc(lcdirectory,
     print('%sZ: %s files to convert grcollect -> FITS lightcurves' %
           (datetime.utcnow().isoformat(), len(ilclist)))
 
-    path_exists = []
-    for outpath in outlist:
-        if os.path.exists(outpath):
-            path_exists.append(1)
-        else:
-            path_exists.append(0)
+    if not overwrite:
+        path_exists = []
+        for outpath in outlist:
+            if os.path.exists(outpath):
+                path_exists.append(1)
+            else:
+                path_exists.append(0)
 
-    path_exists = nparr(path_exists)
+        path_exists = nparr(path_exists)
 
-    if npall(path_exists):
-        print(
-            'found all {:d} FITS lightcurves, continuing'.
-            format(len(path_exists))
-        )
-        return 0
+        if npall(path_exists):
+            print(
+                'found all {:d} FITS lightcurves, continuing'.
+                format(len(path_exists))
+            )
+            return 0
 
-    else:
+    tasks = [(x, y) for x,y in zip(ilclist, outlist)]
+    kwargs = {}
+    kwargs['observatory'] = observatory
+    kwargs['lcdirectory'] = lcdirectory
+    kwargs['fitsdir'] = fitsdir
+    kwargs['projectid'] = projectid
+    kwargs['temperaturedf'] = temperaturedf
 
-        tasks = [(x, y) for x,y in zip(ilclist, outlist)]
-        kwargs = {}
-        kwargs['observatory'] = observatory
-        kwargs['lcdirectory'] = lcdirectory
-        kwargs['fitsdir'] = fitsdir
-        kwargs['projectid'] = projectid
-        kwargs['temperaturedf'] = temperaturedf
+    pool = mp.Pool(nworkers, maxtasksperchild=maxworkertasks)
+    results = pool.map(
+        partial(convert_grcollect_to_fits_lc_worker, **kwargs), tasks
+    )
 
-        pool = mp.Pool(nworkers, maxtasksperchild=maxworkertasks)
-        results = pool.map(
-            partial(convert_grcollect_to_fits_lc_worker, **kwargs), tasks
-        )
+    # wait for the processes to complete work
+    pool.close()
+    pool.join()
 
-        # wait for the processes to complete work
-        pool.close()
-        pool.join()
-
-        del catdf
-        return 1
+    del catdf
+    return 1
 
 
 

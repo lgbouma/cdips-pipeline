@@ -84,6 +84,10 @@ from parse import parse, search
 from numpy import array as nparr
 from astropy.coordinates import SkyCoord
 
+from shutil import which
+
+import errno
+
 ####################
 # HELPER FUNCTIONS #
 ####################
@@ -137,8 +141,15 @@ def _make_movies(fitsdir, moviedir, field, camera, ccd, projectid,
         '{:s}_{:s}_cam{:d}_ccd{:d}_projid{:d}_SUBTRACTEDCONV.mp4'.
         format(field, typestr, int(camera), int(ccd), int(projectid)))
     if not os.path.exists(outmp4path):
-        iu.make_mp4_from_jpegs(jpgglob, outmp4path,
-                               ffmpegpath='/home/lbouma/bin/ffmpeg')
+        if os.path.exists('/home/lbouma/bin/ffmpeg'):
+            ffmpegpath='/home/lbouma/bin/ffmpeg'
+        else:
+            ffmpegpath=which('ffmpeg')
+        if ffmpegpath != '':
+            iu.make_mp4_from_jpegs(jpgglob, outmp4path,
+                                   ffmpegpath=ffmpegpath)
+        else:
+            print('ffmpeg not found - cannot make movies')
     else:
         print('found {}'.format(outmp4path))
 
@@ -149,8 +160,15 @@ def _make_movies(fitsdir, moviedir, field, camera, ccd, projectid,
         '{:s}_{:s}_cam{:d}_ccd{:d}_projid{:d}_NGC.mp4'.
         format(field, typestr, int(camera), int(ccd), int(projectid)))
     if not os.path.exists(outmp4path):
-        iu.make_mp4_from_jpegs(jpgglob, outmp4path,
-                               ffmpegpath='/home/lbouma/bin/ffmpeg')
+        if os.path.exists('/home/lbouma/bin/ffmpeg'):
+            ffmpegpath='/home/lbouma/bin/ffmpeg'
+        else:
+            ffmpegpath=which('ffmpeg')
+        if ffmpegpath != '':
+            iu.make_mp4_from_jpegs(jpgglob, outmp4path,
+                                   ffmpegpath=ffmpegpath)
+        else:
+            print('ffmpeg not found - cannot make movies')
     else:
         print('found {}'.format(outmp4path))
 
@@ -162,8 +180,15 @@ def _make_movies(fitsdir, moviedir, field, camera, ccd, projectid,
         '{:s}_{:s}_cam{:d}_ccd{:d}_projid{:d}_XTRNS.mp4'.
         format(field, typestr, int(camera), int(ccd), int(projectid)))
     if not os.path.exists(outmp4path) and len(glob(jpgglob))>10:
-        iu.make_mp4_from_jpegs(jpgglob, outmp4path,
-                               ffmpegpath='/home/lbouma/bin/ffmpeg')
+        if os.path.exists('/home/lbouma/bin/ffmpeg'):
+            ffmpegpath='/home/lbouma/bin/ffmpeg'
+        else:
+            ffmpegpath=which('ffmpeg')
+        if ffmpegpath != '':
+            iu.make_mp4_from_jpegs(jpgglob, outmp4path,
+                                   ffmpegpath=ffmpegpath)
+        else:
+            print('ffmpeg not found - cannot make movies')
     else:
         print('found (or skipped) {}'.format(outmp4path))
 
@@ -209,10 +234,15 @@ def _make_movies(fitsdir, moviedir, field, camera, ccd, projectid,
                     jpgglob = os.path.join(fitsdir, 'CUT-*', jpgstr)
                     outmp4path = os.path.join(moviedir, outstr)
                     if not os.path.exists(outmp4path) and len(glob(jpgglob))>10:
-                        iu.make_mp4_from_jpegs(
-                            jpgglob, outmp4path,
+                        if os.path.exists('/home/lbouma/bin/ffmpeg'):
                             ffmpegpath='/home/lbouma/bin/ffmpeg'
-                        )
+                        else:
+                            ffmpegpath=which('ffmpeg')
+                        if ffmpegpath != '':
+                            iu.make_mp4_from_jpegs(jpgglob, outmp4path,
+                                                       ffmpegpath=ffmpegpath)
+                        else:
+                            print('ffmpeg not found - cannot make movies')
                     else:
                         print('found (or skipped) {}'.format(outmp4path))
 
@@ -834,7 +864,8 @@ def get_files_needed_before_image_subtraction(
         do_cdips_merge=True,
         astrometrydownsample=2,
         defaultwcsisspoc=True,
-        raise_wcs_error=False
+        raise_wcs_error=False,
+        isforce=False,
     ):
     """
     get .fistar, .fiphot, and .wcs files needed before image subtraction
@@ -855,7 +886,7 @@ def get_files_needed_before_image_subtraction(
                                 fluxthreshold=anetfluxthreshold,
                                 zeropoint=zeropoint, exptime=exptime,
                                 tailstr='.fits',
-                                fnamestr=fnamestr)
+                                fnamestr=fnamestr, overwrite=isforce)
 
     # This function gets all possible sources in the field of view of the
     # frame, given its central pointing coordinates and plate-scale from 2MASS.
@@ -1001,7 +1032,8 @@ def get_files_needed_before_image_subtraction(
                                    fovcat_xycols=(12,13),
                                    projcat_xycols=(24,25),
                                    fiphot_xycols=fiphot_xycols,
-                                   observatory='tess'
+                                   observatory='tess',
+                                   overwrite=isforce
                                   )
 
 
@@ -1016,7 +1048,8 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
                          photreffluxthreshold=30000, extractsources=True,
                          translateimages=True, reversesubtract=False,
                          useimagenotfistar=True,
-                         astrometrydownsample=2, pixelerror=0.3, uniformize=10):
+                         astrometrydownsample=2, pixelerror=0.3, uniformize=10,
+                         isforce=False):
 
     ccdgain = photparams['ccdgain']
     exptime = photparams['ccdexptime']
@@ -1026,21 +1059,22 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
     _ = ais.parallel_frames_to_database(fitsdir, 'calibratedframes',
                                         custom_projid=projectid,
                                         observatory='tess', fitsglob=fitsglob,
-                                        overwrite=False,
+                                        overwrite=isforce,
                                         badframetag='badframes',
                                         nonwcsframes_are_ok=False,
                                         nworkers=nworkers, maxworkertasks=1000)
 
     # Step ISP1.
     arefinfo = ais.dbgen_get_astromref(fieldinfo, makeactive=True,
-                                       observatory='tess', overwrite=False,
+                                       observatory='tess', overwrite=isforce,
                                        refdir=sv.REFBASEDIR, database=None)
     if arefinfo == None:
         raise AssertionError('you need an astrometric reference!!')
 
     # Step ISP2. Takes ~1 sec per 20-30 frames.
     _ = ism.get_smoothed_xysdk_coeffs(fitsdir, fistarglob='*.fistar',
-                                      nworkers=nworkers, maxworkertasks=1000)
+                                      nworkers=nworkers, maxworkertasks=1000,
+                                      overwrite=isforce)
 
     # Step ISP3. ~600 in 5 minutes --> 2 frames per second, running over 20 workers.
     # If called with warpcheck=True and warpthreshold=2000, many things will be
@@ -1052,7 +1086,8 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
                                          refinfo='foobar', warpcheck=False,
                                          warpthreshold=15000.0, warpmargins=100,
                                          nworkers=nworkers, observatory='tess',
-                                         maxworkertasks=1000, fieldinfo=fieldinfo)
+                                         maxworkertasks=1000, fieldinfo=fieldinfo,
+                                         overwrite=isforce)
     else:
         make_fake_xtrnsfits(fitsdir, fitsglob, fieldinfo)
 
@@ -1072,7 +1107,7 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
     photrefinfo = ais.generate_photref_candidates_from_xtrns(
         xtrnsfiles, minframes=50, observatory='tess',
         maxbackgroundstdevpctile=100., maxbackgroundmedianpctile=70.,
-        minngoodobjectpctile=70., forcecollectinfo=False, nworkers=nworkers,
+        minngoodobjectpctile=70., forcecollectinfo=isforce, nworkers=nworkers,
         maxworkertasks=1000)
 
     # Optional Step ISP5: amend the list, if needed.
@@ -1089,6 +1124,7 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
         apertures=aperturelist, framewidth=None, searchradius=8.0,
         nworkers=nworkers, maxworkertasks=1000, observatory='tess',
         fieldinfo=fieldinfo, photreffluxthreshold=photreffluxthreshold,
+        overwrite=isforce,
         useimagenotfistar=useimagenotfistar,
         astrometrydownsample=astrometrydownsample,
         pixelerror=pixelerror,
@@ -1121,10 +1157,11 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
     # photometric reference.  With 30 workers, at best process ~few frames per
     # second.
 
-    if len(glob(os.path.join(fitsdir,'*.iphot')))<10:
+    if isforce or len(glob(os.path.join(fitsdir,'*.iphot')))<10:
         _ = ais.parallel_xtrnsfits_convsub(
             xtrnsfiles, photreftype, fitsdir=fitsdir, fitsglob=fitsglob,
             outdir=outdir, observatory='tess', fieldinfo=fieldinfo,
+            overwrite=isforce,
             reversesubtract=reversesubtract, kernelspec=kernelspec,
             nworkers=nworkers, maxworkertasks=1000, colorscheme=colorscheme)
     else:
@@ -1133,7 +1170,7 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
     # Step ISP8: do photometry on your subtracted frames to produce .iphot files.
     # With 30 workers, at best process ~few frames per second.
 
-    if len(glob(os.path.join(fitsdir,'*.iphot')))<10:
+    if isforce or len(glob(os.path.join(fitsdir,'*.iphot')))<10:
         subfitslist = glob(os.path.join(fitsdir,'[r|n]sub-????????-'+
                                         fitsglob.replace('.fits','-xtrns.fits')))
 
@@ -1145,7 +1182,8 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
             subfitslist, fitsdir=fitsdir, fitsglob=fitsglob,
             photreftype=photreftype, kernelspec=kernelspec,
             lcapertures=aperturelist, photdisjointradius=photdisjointradius,
-            outdir=outdir, fieldinfo=fieldinfo, observatory='tess',
+            outdir=outdir, fieldinfo=fieldinfo, overwrite=isforce,
+            observatory='tess',
             nworkers=nworkers, maxworkertasks=1000, photparams=photparams)
         if out==42:
             raise AssertionError('fatal error in convsubfits_staticphot')
@@ -1153,7 +1191,7 @@ def run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams, fits_list,
         print('found .iphot files. skipping their production.')
 
     # Step ISP9 + 10 : dump lightcurves.
-    if len(glob(os.path.join(lcdirectory,'*.grcollectilc'))) < 10:
+    if isforce or len(glob(os.path.join(lcdirectory,'*.grcollectilc'))) < 10:
         ism.dump_lightcurves_with_grcollect(
             iphotpattern, lcdirectory, '4g', lcextension='grcollectilc',
             objectidcol=3, observatory='tess')
@@ -1223,7 +1261,8 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
                    fitsglob, camera, ccd, projectid,
                    epdsmooth=11, epdsigclip=10, nworkers=10,
                    binlightcurves=False, tfa_template_sigclip=5.0,
-                   tfa_epdlc_sigclip=5.0, skipepd=True, fixedtfatemplate=None):
+                   tfa_epdlc_sigclip=5.0, skipepd=True, fixedtfatemplate=None,
+                   isforce=False):
     """
     Step ISP11: do EPD on all the LCs, and collect stats on the results.
     for ISP LCs, use lcmagcols=([27,28,29],[30,],[30,],[30,])
@@ -1236,7 +1275,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
     catfile = reformed_cat_file.replace('.reformed_catalog', '.catalog')
     tfaboolstatusfile = os.path.join(statsdir,'are_tfa_plots_done.txt')
 
-    if len(glob(os.path.join(lcdirectory,'*_llc.fits')))<10:
+    if isforce or len(glob(os.path.join(lcdirectory,'*_llc.fits')))<10:
 
         engdir = '/nfs/phtess2/ar0/TESS/FFI/ENGINEERING/'
         # e.g., s0002-3-3-0121_key_temperature_count.csv
@@ -1250,7 +1289,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
         lcu.parallel_convert_grcollect_to_fits_lc(
             lcdirectory, fitsdir, projectid, catfile=catfile,
             ilcglob='*.grcollectilc', nworkers=nworkers, observatory='tess',
-            temperaturedfpath=temperaturedfpath
+            temperaturedfpath=temperaturedfpath, overwrite=isforce
         )
 
         lcu.parallel_apply_barycenter_time_correction(
@@ -1259,7 +1298,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
     else:
         print('found >10 fits LCs from grcollect. skip grcollect convert.')
 
-    if not os.path.exists(epdstatfile) and not skipepd:
+    if (isforce or not os.path.exists(epdstatfile)) and not skipepd:
 
         raise AssertionError('in TESS reduction, we\'re skipping EPD!')
 
@@ -1295,8 +1334,8 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
         print('already made EPD LC stats file')
 
     if (skipepd
-        and not os.path.exists(tfastatfile)
-        and not os.path.exists(epdstatfile)
+        and (isforce or not os.path.exists(tfastatfile))
+        and (isforce or not os.path.exists(epdstatfile))
        ):
         # do the hack of getting "EPD" statistics that are actually IRM
         # statistics, duplicated into all the EPD fields.
@@ -1312,7 +1351,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
 
     epdmadplot = glob(os.path.join(statsdir, '*median-EP1-vs-mad-*png'))
     if (not epdmadplot and
-        not os.path.exists(tfaboolstatusfile) and
+        (isforce or not os.path.exists(tfaboolstatusfile)) and
         not skipepd
        ):
         ap.plot_stats_file(epdstatfile, statsdir, field, binned=False,
@@ -1323,7 +1362,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
         print('skipped making EPD LC plots')
 
     # choose the TFA template stars
-    if not os.path.exists(os.path.join(
+    if isforce or not os.path.exists(os.path.join(
         statsdir,'tfa-stage1-input-aperture-1.txt')
     ):
         if 'TUNE' in statsdir:
@@ -1346,7 +1385,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
                                    fovcathasgaiaids=True, epdlcext='_llc.fits')
 
 
-    if not os.path.exists(vartoolstfastatfile):
+    if isforce or not os.path.exists(vartoolstfastatfile):
         templatefiles = glob(os.path.join(
             statsdir, 'tfa-stage1-input-aperture-?.txt'))
         lcfiles = glob(os.path.join(lcdirectory,'*_llc.fits'))
@@ -1415,7 +1454,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
 
         lcu.parallel_merge_tfa_lcs(lcdirectory, nworkers=nworkers)
 
-    if not os.path.exists(tfastatfile):
+    if isforce or not os.path.exists(tfastatfile):
 
         # Catalog projection performed here does some useful things joel's
         # stats file does not for Gaia DR2, catalog mag col corresponds to G_Rp
@@ -1438,7 +1477,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
         # NOTE: this invalidates the check for whether the plots exist. however
         # writing them is fairly quick. this makes it happen once.
         os.remove(tfaboolstatusfile)
-    if not os.path.exists(tfaboolstatusfile):
+    if isforce or not os.path.exists(tfaboolstatusfile):
         ap.plot_stats_file(tfastatfile, statsdir, field, binned=False,
                            logy=True, logx=False, correctmagsafter=None,
                            rangex=(5.9,16), observatory='tess',
@@ -1454,7 +1493,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
         binsizes = [3600,21600]
 
         binnedlcfiles = glob(lcdirectory+'*.binned-*sec-lc.pkl')
-        if len(binnedlcfiles) == 0:
+        if isforce or len(binnedlcfiles) == 0:
             ap.parallel_bin_lightcurves(
                 lcdirectory, '*epdlc', binsizes=binsizes,
                 lcexts=('epdlc', 'tfalc'),
@@ -1475,7 +1514,7 @@ def run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
             [onehr_binstatfile, sixhr_binstatfile], [onehrglob, sixhrglob],
             binsizes):
 
-            if not os.path.exists(binstatfile):
+            if isforce or not os.path.exists(binstatfile):
                 ap.parallel_binnedlc_statistics(
                     lcdirectory, binglob, reformed_cat_file, fovcatcols=(0,6),
                     fovcatmaglabel='r', corrmagsource=None, corrmag_idcol=0,
@@ -1682,7 +1721,7 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
          tfa_template_sigclip=5.0, tfa_epdlc_sigclip=5.0, translateimages=True,
          reversesubtract=False, skipepd=True, useimagenotfistar=True,
          fixedtfatemplate=None, flagvalues=[-1,4,32,36,2048,2080,2052,2084],
-         do_cdips_merge=True
+         do_cdips_merge=True, isforce=False
          ):
     """
     args:
@@ -1778,7 +1817,7 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
     alreadydone = os.path.exists(tfastatfile)
 
     if (convert_to_fitsh_compatible and get_masks
-        and not mostexist and not alreadydone
+        and (isforce or (not mostexist and not alreadydone))
     ):
 
         # First, trim each frame, and turn it into a single extension FITS
@@ -1787,7 +1826,7 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
         # and frames with the DQUALITY=32 flag.
         tu.parallel_trim_get_single_extension(mast_calibrated_ffi_list,
                                               RED_dir, projectid,
-                                              nworkers=nworkers)
+                                              nworkers=nworkers, isforce=isforce)
 
         fits_list = np.sort(glob(os.path.join(
             RED_dir,
@@ -1799,9 +1838,11 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
         #                          outdir=RED_dir, nworkers=nworkers)
         tu.parallel_bkgd_subtract(fits_list, method='boxblurmedian',
                                   isfull=True, k=48, k_sigma=48,
-                                  outdir=RED_dir, nworkers=nworkers)
+                                  outdir=RED_dir, nworkers=nworkers,
+                                  isforce=isforce)
 
-        tu.parallel_plot_median_filter_quad(RED_dir, nworkers=nworkers)
+        tu.parallel_plot_median_filter_quad(RED_dir, nworkers=nworkers,
+                                            isforce=isforce)
 
         moviedir='/nfs/phtess2/ar0/TESS/FFI/MOVIES/'
         outmp4path = os.path.join(
@@ -1809,9 +1850,16 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
             format(sectornum, camnum, ccdnum)
         )
         quadglob = os.path.join(RED_dir, 'tess*_cal_img_bkgd.png')
-        if not os.path.exists(outmp4path):
-            iu.make_mp4_from_jpegs(quadglob, outmp4path,
-                                   ffmpegpath='/home/lbouma/bin/ffmpeg')
+        if isforce or not os.path.exists(outmp4path):
+            if os.path.exists('/home/lbouma/bin/ffmpeg'):
+                ffmpegpath='/home/lbouma/bin/ffmpeg'
+            else:
+                ffmpegpath=which('ffmpeg')
+            if ffmpegpath != '':
+                iu.make_mp4_from_jpegs(quadglob, outmp4path,
+                                       ffmpegpath=ffmpegpath)
+            else:
+                print('ffmpeg not found - cannot make movies')
 
         # The TESS handbook quotes saturation beginning at "around 2e5
         # electrons". gain ~= 5 electrons per ADU, so this corresponds to
@@ -1843,14 +1891,24 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
         pass
 
     # symlink images so that they "live" in each reduction directory.
-    if not alreadydone:
+    if isforce or not alreadydone:
         fits_list = np.sort(glob(os.path.join(RED_dir,fitsglob)))
         for fitspath in fits_list:
             dstname = os.path.basename(fitspath)
             dstdir = fitsdir
             dstpath = os.path.join(dstdir, dstname)
-            if not os.path.exists(dstpath):
-                os.symlink(fitspath, dstpath)
+            if isforce or not os.path.exists(dstpath):
+                if isforce:
+                    try:
+                        os.symlink(fitspath, dstpath)
+                    except OSError as e:
+                        if e.errno == errno.EEXIST:
+                            os.remove(dstpath)
+                            os.symlink(fitspath, dstpath)
+                        else:
+                            raise e
+                else:
+                    os.symlink(fitspath, dstpath)
                 print('symlink {}->{}'.format(fitspath, dstpath))
             else:
                 print('SKIP symlink {}->{}'.format(fitspath, dstpath))
@@ -1902,7 +1960,7 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
 
     ###########################################################################
 
-    if not is_presubtraction_complete(outdir, fitsglob, lcdirectory, outdir,
+    if isforce or not is_presubtraction_complete(outdir, fitsglob, lcdirectory, outdir,
                                       extractsources=extractsources):
         get_files_needed_before_image_subtraction(
             sectornum, camera, ccd,
@@ -1914,7 +1972,8 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
             ypix=2048, cols=(2,3), brightrmag=6.0, faintrmag=cluster_faint_Rp_mag,
             fiphotfluxthreshold=fiphotfluxthreshold, aperturelist=aperturelist,
             nworkers=nworkers, extractsources=extractsources,
-            useimagenotfistar=useimagenotfistar, do_cdips_merge=do_cdips_merge)
+            useimagenotfistar=useimagenotfistar, do_cdips_merge=do_cdips_merge,
+            isforce=isforce)
 
     else:
         print('found fistar, fiphot, and wcs files. proceeding to image '
@@ -1958,7 +2017,7 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
     else:
         iphotpattern = fitsdir+'nsub-????????-'+fitsglob.replace('.fits','.iphot')
 
-    if not is_imagesubtraction_complete(fitsdir, fitsglob, lcdirectory):
+    if isforce or not is_imagesubtraction_complete(fitsdir, fitsglob, lcdirectory):
 
         run_imagesubtraction(fitsdir, fitsglob, fieldinfo, photparams,
                              fits_list, photreftype, dbtype, reformed_cat_file,
@@ -1972,11 +2031,12 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
                              extractsources=extractsources,
                              translateimages=translateimages,
                              reversesubtract=reversesubtract,
-                             useimagenotfistar=useimagenotfistar)
+                             useimagenotfistar=useimagenotfistar,
+                             isforce=isforce)
     else:
         print('found that image subtraction is complete.')
 
-    if not alreadydone:
+    if isforce or not alreadydone:
         run_detrending(epdstatfile, tfastatfile, vartoolstfastatfile, lcdirectory,
                        epdlcglob, reformed_cat_file, statsdir, field, fitsdir,
                        fitsglob, camera, ccd, projectid,
@@ -1984,7 +2044,7 @@ def main(fitsdir, fitsglob, projectid, field, camnum, ccdnum,
                        nworkers=nworkers, binlightcurves=binlightcurves,
                        tfa_template_sigclip=tfa_template_sigclip,
                        tfa_epdlc_sigclip=tfa_epdlc_sigclip, skipepd=skipepd,
-                       fixedtfatemplate=fixedtfatemplate)
+                       fixedtfatemplate=fixedtfatemplate, isforce=isforce)
 
     statsdir = os.path.dirname(epdstatfile)+'/'
     outprefix = str(field)+'-'+str(projectid)
@@ -2231,6 +2291,12 @@ if __name__ == '__main__':
               'other things.')
     )
 
+    parser.add_argument(
+        '--force', dest='isforce', action='store_true',
+        help=('force overwrite and redo previously completed steps.')
+    )
+    parser.set_defaults(isforce=False)
+
     args = parser.parse_args()
 
     check_args(args)
@@ -2266,5 +2332,6 @@ if __name__ == '__main__':
          translateimages=args.trnsimgs,
          reversesubtract=args.reversesubtract,
          skipepd=args.skipepd,
-         fixedtfatemplate=args.fixedtfatemplate
+         fixedtfatemplate=args.fixedtfatemplate,
+         isforce=args.isforce
     )

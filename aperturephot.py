@@ -1320,6 +1320,7 @@ def check_files(inlist, operationstr, outdir, intailstr='.fits',
                             os.path.basename(re.sub(intailstr, outtailstr, x))) for
               x in inlist]
 
+    
     exists = np.array(outlist)[np.array([os.path.exists(f) for f in outlist])]
     _exists = [re.sub(outtailstr,'',e) for e in exists]
     _inlist = [re.sub(intailstr,'',w) for w in inlist]
@@ -1357,7 +1358,8 @@ def parallel_extract_sources(fitsdir,
                              zeropoint=17.11,
                              exptime=30.0,
                              tailstr=FITS_TAIL,
-                             fnamestr='*_?.fits'):
+                             fnamestr='*_?.fits',
+                             overwrite=False):
     """
     This does parallel source extraction from all FITS in fitsdir, and puts the
     results in outdir.
@@ -1376,12 +1378,15 @@ def parallel_extract_sources(fitsdir,
                outdir))
         os.mkdir(outdir)
 
-    # get the files for which source extraction hasn't already been done
-    toextract = check_files(fitslist,
-                            'source extraction',
-                            outdir,
-                            intailstr=tailstr,
-                            outtailstr='.fistar')
+    if not overwrite:
+        # get the files for which source extraction hasn't already been done
+        toextract = check_files(fitslist,
+                                'source extraction',
+                                outdir,
+                                intailstr=tailstr,
+                                outtailstr='.fistar')
+    else:
+        toextract = fitslist
     if type(toextract) == int:
         if toextract == -1:
             return -1
